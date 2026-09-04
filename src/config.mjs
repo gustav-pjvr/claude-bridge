@@ -33,6 +33,11 @@ export const MODEL = (process.env.BRIDGE_MODEL || '').trim()
 /** Effort for delegated runs. Empty means the machine's configured default. */
 export const EFFORT = (process.env.BRIDGE_EFFORT || '').trim()
 
+/** Claude in Chrome is opt-in per session via --chrome, so a delegated worker does not get
+ *  it unless we ask. Without this the worker silently lacks browser tools while an ordinary
+ *  interactive session on the same machine has them. Set BRIDGE_CHROME=false to disable. */
+export const CHROME = (process.env.BRIDGE_CHROME || 'true').trim().toLowerCase() !== 'false'
+
 /* The caller may steer the worker, but only through fixed vocabularies.
  *
  * Every one of these values ends up in argv. A free string there is a flag-injection

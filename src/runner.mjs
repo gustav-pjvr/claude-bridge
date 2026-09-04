@@ -6,6 +6,7 @@ import {
   ALLOWED_PERMISSION_MODES,
   ALLOWED_TOOLS,
   ALLOWED_TOOLS_PATTERN,
+  CHROME,
   EFFORT,
   JOB_TIMEOUT_MS,
   MAX_CONCURRENT_JOBS,
@@ -73,6 +74,10 @@ function buildArgs(job) {
     // denied rather than left hanging. The permission mode still decides the rest.
     '--permission-prompts', 'none',
   ]
+  // Claude in Chrome is per-session opt-in, so without this the worker quietly has no
+  // browser tools even though an interactive session on this machine does.
+  if (CHROME) args.push('--chrome')
+
   const resume = safeSessionId(job.resume_session_id)
   if (resume) args.push('--resume', resume)
   if (model) args.push('--model', model)
