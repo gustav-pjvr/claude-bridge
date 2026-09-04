@@ -1,7 +1,13 @@
-# Launcher for the scheduled task. Runs the bridge from the project root and appends
-# output to logs/bridge.log, which the task itself cannot do.
+# Launcher for the scheduled task. Runs the bridge from the project root and captures its
+# output to logs/.
 #
 # Registered by scripts/install-autostart.ps1. Run this directly to test what the task does.
+#
+# IMPORTANT: node's output is redirected by the OS via Start-Process, never piped through
+# PowerShell. In PowerShell 5.1, merging a native executable's stderr into the pipeline
+# (`*>&1`) wraps each line as a NativeCommandError, which under $ErrorActionPreference='Stop'
+# is terminating and kills the server. That bug silently killed the bridge every time a
+# delegated job wrote anything to stderr, so do not reintroduce a pipeline here.
 
 $ErrorActionPreference = 'Stop'
 
@@ -10,18 +16,26 @@ Set-Location $projectRoot
 
 $logDir = Join-Path $projectRoot 'logs'
 if (-not (Test-Path $logDir)) { New-Item -ItemType Directory -Path $logDir | Out-Null }
-$logFile = Join-Path $logDir 'bridge.log'
 
-# Keep the log from growing without bound across reboots.
-if ((Test-Path $logFile) -and ((Get-Item $logFile).Length -gt 10MB)) {
-    Move-Item -Path $logFile -Destination "$logFile.1" -Force
+$outFile = Join-Path $logDir 'bridge.log'
+$errFile = Join-Path $logDir 'bridge.err.log'
+
+# Start-Process truncates its redirect targets, so keep one previous generation.
+foreach ($f in @($outFile, $errFile)) {
+    if (Test-Path $f) { Move-Item -Path $f -Destination "$f.1" -Force }
 }
 
-"=== bridge start $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss') ===" | Out-File -FilePath $logFile -Append -Encoding utf8
-
 $node = Join-Path $env:ProgramFiles 'nodejs\node.exe'
-if (-not (Test-Path $node)) { $node = 'node' }
+if (-not (Test-Path $node)) { $node = (Get-Command node -ErrorAction Stop).Source }
 
-& $node --env-file-if-exists=.env src/server.mjs *>&1 |
-    ForEach-Object { "$(Get-Date -Format 'HH:mm:ss') $_" } |
-    Out-File -FilePath $logFile -Append -Encoding utf8
+$proc = Start-Process -FilePath $node `
+    -ArgumentList '--env-file-if-exists=.env', 'src/server.mjs' `
+    -WorkingDirectory $projectRoot `
+    -NoNewWindow -PassThru `
+    -RedirectStandardOutput $outFile `
+    -RedirectStandardError $errFile
+
+# Hold the task instance open for as long as the server runs, so Task Scheduler's
+# "is it still running" check reflects reality.
+$proc.WaitForExit()
+exit $proc.ExitCode

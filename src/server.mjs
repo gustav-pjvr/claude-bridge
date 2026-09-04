@@ -272,6 +272,24 @@ async function handleMcp(req, res) {
 const httpServer = http.createServer((req, res) => {
   const url = new URL(req.url, `http://${req.headers.host || 'localhost'}`)
 
+  // Request logging. Kept in permanently: when a remote client fails to connect, the first
+  // question is always whether its request reached this machine at all, and nothing else
+  // answers that.
+  const started = Date.now()
+  const from = req.socket.remoteAddress
+  const proto = req.headers['mcp-protocol-version'] || req.headers['x-mcp-protocol-version'] || '-'
+  res.on('finish', () => {
+    console.log(
+      `[http] ${from} ${req.method} ${url.pathname} -> ${res.statusCode}`
+      + ` (${Date.now() - started}ms) accept=${req.headers.accept || '-'} proto=${proto}`,
+    )
+  })
+  res.on('close', () => {
+    if (!res.writableEnded) {
+      console.log(`[http] ${from} ${req.method} ${url.pathname} -> CLIENT CLOSED after ${Date.now() - started}ms`)
+    }
+  })
+
   if (req.method === 'GET' && url.pathname === '/health') {
     res.writeHead(200, { 'content-type': 'application/json' })
     res.end(JSON.stringify({ ok: true, service: 'claude-bridge', running: runningCount() }))
