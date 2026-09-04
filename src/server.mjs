@@ -8,7 +8,8 @@ import { z } from 'zod'
 
 import {
   ALLOWED_EFFORTS, ALLOWED_MODELS, ALLOWED_PERMISSION_MODES,
-  DEFAULT_CWD, HOST, MAX_WAIT_SECONDS, PERMISSION_MODE, PORT, TOKEN,
+  DEFAULT_CWD, HOST, MAX_WAIT_SECONDS, PERMISSION_MODE, PORT,
+  PROGRESS_INTERVAL_MS, SAFE_WAIT_WITHOUT_PROGRESS, TOKEN,
   assertConfigured,
 } from './config.mjs'
 import {
@@ -18,6 +19,9 @@ import {
 import { CLAUDE_BIN_PATH, cancelJob, runningCount, startJob } from './runner.mjs'
 
 const MAX_BODY_BYTES = 8 * 1024 * 1024
+
+/** Correlates the arrival and completion log lines for one request. */
+let nextRequestId = 0
 
 function tokenMatches(presented) {
   const a = Buffer.from(presented)
@@ -55,9 +59,58 @@ function textResult(text) {
   return { content: [{ type: 'text', text }] }
 }
 
-function clampWait(seconds, fallback) {
+/** The caller's progressToken, when it sent one. Without it we cannot heartbeat. */
+function progressToken(extra) {
+  return extra?._meta?.progressToken
+}
+
+function clampWait(seconds, fallback, ceilingSeconds) {
   const requested = Number.isFinite(seconds) ? seconds : fallback
-  return Math.max(0, Math.min(requested, MAX_WAIT_SECONDS)) * 1000
+  return Math.max(0, Math.min(requested, ceilingSeconds)) * 1000
+}
+
+/** How long this call may block, given whether we can keep the caller's idle clock alive. */
+function waitCeiling(extra) {
+  return progressToken(extra) === undefined ? SAFE_WAIT_WITHOUT_PROGRESS : MAX_WAIT_SECONDS
+}
+
+/**
+ * Wait for a job, heartbeating to the caller while we do.
+ *
+ * Claude Code aborts an HTTP server's tool call after 300s of silence, but a progress
+ * notification resets that idle clock. Heartbeating therefore lets one call block for the
+ * whole job, which takes the model's willingness to keep polling off the critical path.
+ * Without a progressToken we cannot do this, so the caller-side ceiling drops accordingly.
+ */
+async function waitWithHeartbeat(jobId, waitMs, extra) {
+  const token = progressToken(extra)
+  let ticker = null
+
+  if (token !== undefined && waitMs > PROGRESS_INTERVAL_MS) {
+    const startedAt = Date.now()
+    ticker = setInterval(() => {
+      const seconds = Math.round((Date.now() - startedAt) / 1000)
+      // A failed heartbeat is not worth failing the job over: the caller may simply have
+      // stopped listening, and the job keeps running either way.
+      Promise.resolve(
+        extra.sendNotification({
+          method: 'notifications/progress',
+          params: {
+            progressToken: token,
+            progress: seconds,
+            message: `Delegated job still running on the remote machine (${seconds}s).`,
+          },
+        }),
+      ).catch(() => {})
+    }, PROGRESS_INTERVAL_MS)
+    ticker.unref?.()
+  }
+
+  try {
+    return await waitForTerminal(jobId, waitMs)
+  } finally {
+    if (ticker) clearInterval(ticker)
+  }
 }
 
 function resolveCwd(requested) {
@@ -124,9 +177,13 @@ function buildServer() {
     {
       title: 'Delegate a task to the remote Claude Code',
       description:
-        'Send a task to the Claude Code session on the remote machine and wait briefly for the answer. '
-        + 'Returns the finished result when the work completes in time, otherwise a job_id to poll with collect. '
-        + 'The prompt must be self-contained: the remote session cannot see your conversation, only this text.',
+        'Send a task to the Claude Code session on the remote machine and wait for the answer. '
+        + 'This normally blocks until the work is done and returns the result directly, even for tasks '
+        + 'that take many minutes, so just wait for it. Only if the job outlasts the wait does it return '
+        + 'a job_id, which you then pass to collect. '
+        + 'The prompt must be self-contained: the remote session cannot see your conversation, your files '
+        + 'or anything you have discussed, only this text. Referring to a task by a name you used elsewhere '
+        + 'will not work; restate it in full.',
       inputSchema: {
         prompt: z.string().min(1).describe('The full, self-contained task for the remote Claude Code session.'),
         // Must be a UUID, and the shape is load-bearing, not cosmetic. `--resume [value]`
@@ -155,7 +212,7 @@ function buildServer() {
           .describe('Restrict the remote worker to these tools, e.g. "Read,Grep,Glob". Defaults to all of them.'),
       },
     },
-    async ({ prompt, session_id, cwd, wait_seconds, model, effort, permission_mode, allowed_tools }) => {
+    async ({ prompt, session_id, cwd, wait_seconds, model, effort, permission_mode, allowed_tools }, extra) => {
       const resolved = resolveCwd(cwd)
       if (resolved.error) return { isError: true, ...textResult(resolved.error) }
 
@@ -174,7 +231,10 @@ function buildServer() {
       )
       startJob(job)
 
-      const finished = await waitForTerminal(job.id, clampWait(wait_seconds, 25))
+      // Default to blocking for the whole job when we can heartbeat, so a single call
+      // usually returns the answer and the caller never has to poll at all.
+      const ceiling = waitCeiling(extra)
+      const finished = await waitWithHeartbeat(job.id, clampWait(wait_seconds, ceiling, ceiling), extra)
       return textResult(describeJob(finished || job))
     },
   )
@@ -194,11 +254,12 @@ function buildServer() {
           .describe(`How long to wait for completion before returning the current status. Capped at ${MAX_WAIT_SECONDS}.`),
       },
     },
-    async ({ job_id, wait_seconds }) => {
+    async ({ job_id, wait_seconds }, extra) => {
       if (!getJob(job_id)) {
         return { isError: true, ...textResult(`No job with id "${job_id}" on the remote machine.`) }
       }
-      const job = await waitForTerminal(job_id, clampWait(wait_seconds, MAX_WAIT_SECONDS))
+      const ceiling = waitCeiling(extra)
+      const job = await waitWithHeartbeat(job_id, clampWait(wait_seconds, ceiling, ceiling), extra)
       return textResult(describeJob(job))
     },
   )
@@ -278,15 +339,22 @@ const httpServer = http.createServer((req, res) => {
   const started = Date.now()
   const from = req.socket.remoteAddress
   const proto = req.headers['mcp-protocol-version'] || req.headers['x-mcp-protocol-version'] || '-'
+  const rid = (nextRequestId += 1)
+
+  // Log on ARRIVAL as well as completion. Logging only on completion made a long in-flight
+  // long-poll indistinguishable from a client that had gone silent, which cost a wrong
+  // diagnosis: a caller patiently waiting looked identical to one that had given up.
+  console.log(`[http] #${rid} ${from} ${req.method} ${url.pathname} <- received proto=${proto}`)
+
   res.on('finish', () => {
     console.log(
-      `[http] ${from} ${req.method} ${url.pathname} -> ${res.statusCode}`
+      `[http] #${rid} ${from} ${req.method} ${url.pathname} -> ${res.statusCode}`
       + ` (${Date.now() - started}ms) accept=${req.headers.accept || '-'} proto=${proto}`,
     )
   })
   res.on('close', () => {
     if (!res.writableEnded) {
-      console.log(`[http] ${from} ${req.method} ${url.pathname} -> CLIENT CLOSED after ${Date.now() - started}ms`)
+      console.log(`[http] #${rid} ${from} ${req.method} ${url.pathname} -> CLIENT CLOSED after ${Date.now() - started}ms`)
     }
   })
 
@@ -344,7 +412,8 @@ function main() {
     console.log(`[bridge] claude binary   ${CLAUDE_BIN_PATH}`)
     console.log(`[bridge] default cwd     ${DEFAULT_CWD}`)
     console.log(`[bridge] permission mode ${PERMISSION_MODE}`)
-    console.log(`[bridge] max inline wait ${MAX_WAIT_SECONDS}s`)
+    console.log(`[bridge] max wait       ${MAX_WAIT_SECONDS}s with progress, ${SAFE_WAIT_WITHOUT_PROGRESS}s without`)
+    console.log(`[bridge] heartbeat      every ${PROGRESS_INTERVAL_MS / 1000}s`)
     console.log(`[bridge] restored ${restored} job(s) from disk`)
   })
 }

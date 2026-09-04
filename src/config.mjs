@@ -55,15 +55,20 @@ export const ALLOWED_TOOLS_PATTERN = /^[A-Za-z][A-Za-z0-9_ ,:*().\/-]*$/
 /** Hard ceiling on a single delegated run, independent of how long the caller waits. */
 export const JOB_TIMEOUT_MS = Number(process.env.BRIDGE_JOB_TIMEOUT_MS || 3_600_000)
 
-/** Long-poll ceiling per tool call.
+/** Long-poll ceiling per tool call, when we can keep the caller's idle clock alive.
  *
  *  The binding constraint is the caller's IDLE clock, not its wall clock. The wall clock
- *  defaults to about 27.8 hours and has no documented maximum, but Claude Code aborts an
- *  HTTP server's call after 300s of silence unless the caller sets a per-server "timeout"
- *  or CLAUDE_CODE_MCP_TOOL_IDLE_TIMEOUT. 240 keeps us safely under that with no config on
- *  the caller's side. Going higher means emitting progress notifications, which reset the
- *  idle clock, or requiring the caller to set a per-server timeout. */
-export const MAX_WAIT_SECONDS = Number(process.env.BRIDGE_MAX_WAIT_SECONDS || 240)
+ *  defaults to about 27.8 hours, but Claude Code aborts an HTTP server's call after 300s of
+ *  silence. Progress notifications reset that idle clock, so while we can send them a single
+ *  call can block for the whole job and the caller never has to poll again. */
+export const MAX_WAIT_SECONDS = Number(process.env.BRIDGE_MAX_WAIT_SECONDS || 1800)
+
+/** Ceiling when the caller sent no progressToken, so we cannot reset its idle clock.
+ *  Must stay under the 300s idle default. */
+export const SAFE_WAIT_WITHOUT_PROGRESS = Number(process.env.BRIDGE_SAFE_WAIT_SECONDS || 240)
+
+/** How often to heartbeat while waiting. Well inside the 300s idle window. */
+export const PROGRESS_INTERVAL_MS = Number(process.env.BRIDGE_PROGRESS_INTERVAL_MS || 30_000)
 
 /** Most delegated runs alive at once. This is not a limit on what a job may do, it stops
  *  a runaway caller from spawning Claude Code processes until the machine falls over. */

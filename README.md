@@ -83,8 +83,11 @@ All settings live in `.env`, documented in `.env.example`. The ones that matter:
 - `BRIDGE_CWD` working directory delegated runs start in
 - `BRIDGE_PERMISSION_MODE` defaults to `auto`, matching this machine's interactive default
 - `BRIDGE_ALLOWED_TOOLS` empty by default, so the worker keeps every tool it normally has
-- `BRIDGE_MAX_WAIT_SECONDS` longest a single tool call blocks, default 240, which stays
-  under the caller's 300 s idle clock without needing any config on their side
+- `BRIDGE_MAX_WAIT_SECONDS` longest a single tool call blocks, default 1800. The bridge
+  heartbeats with progress notifications while waiting, which resets the caller's idle clock,
+  so one call normally returns the answer even for a job lasting many minutes
+- `BRIDGE_SAFE_WAIT_SECONDS` fallback ceiling of 240 when the caller sends no
+  `progressToken` and we therefore cannot keep its idle clock alive
 
 There is deliberately no spend cap: the owner asked for the worker to run unrestricted and
 watches it directly. `list_jobs` reports per-job cost, and every delegation is logged to the

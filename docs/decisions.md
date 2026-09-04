@@ -4,6 +4,27 @@ Newest first. Each entry records what was decided, why, and what would reopen it
 
 ---
 
+## 2026-09-04: heartbeat instead of relying on the caller to keep polling
+
+**Decision.** `delegate` and `collect` emit `notifications/progress` every 30 s while waiting,
+and block for up to 30 minutes when the caller sent a `progressToken`. Without one they fall
+back to 240 s. Requests are also logged on arrival, not only on completion.
+
+**Why.** Observed on the first real long job: a 12 minute Fable task needed three round trips
+and depended on the sending model choosing to call `collect` again each time. Model
+persistence was on the critical path, which is the wrong place for it. Progress notifications
+reset the caller's idle clock (the wall clock is ~27.8 hours and never the constraint), so one
+call can now block for the whole job and usually just returns the answer.
+
+The arrival logging comes from a wrong diagnosis during that same job: logging only on
+completion made an in-flight 240 s long-poll indistinguishable from a caller that had gone
+silent, and it was called both ways before the truth was clear.
+
+**Reopen if.** A caller ever sends no `progressToken`, in which case it silently gets the
+240 s behaviour and the old polling requirement. That is by design, but it is worth knowing.
+
+---
+
 ## 2026-09-04: never pipe node through PowerShell, and log every request
 
 **Decision.** `start-bridge.ps1` uses `Start-Process` with OS-level redirection. HTTP request

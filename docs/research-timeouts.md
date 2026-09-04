@@ -147,11 +147,15 @@ revision removes `Last-Event-ID` SSE resumability.
    fragile even when it is allowed. Under 2026-07-28, a closed response stream is defined as
    cancellation of the request.
 3. **Emit progress notifications from long-blocking tools.** They do not help the wall clock
-   but do hold off the idle timer, which defaults to 5 minutes for HTTP servers.
-4. **Keep `BRIDGE_MAX_WAIT_SECONDS` under the caller's IDLE clock, not its wall clock.** The
-   wall clock is effectively unlimited; the 300 s idle default for HTTP servers is what
-   actually bites. The default of 240 stays under it with no config on the caller's side.
-   Going higher requires either progress notifications or a per-server `"timeout"` on the
-   caller.
+   but do reset the idle timer, which defaults to 5 minutes for HTTP servers. **This is now
+   implemented**, and it is what lets a single call block for a whole job.
+4. **The idle clock, not the wall clock, is what sets the blocking ceiling.** The wall clock
+   is effectively unlimited; the 300 s idle default for HTTP servers is what actually bites.
+   With heartbeating the bridge blocks up to `BRIDGE_MAX_WAIT_SECONDS` (1800), and without a
+   `progressToken` it falls back to `BRIDGE_SAFE_WAIT_SECONDS` (240), safely under the idle
+   default.
+
+   Verified with a 3 s heartbeat interval on a scratch instance: the stream carried
+   `notifications/progress` with `progress: 3` and `progress: 6` before the result.
 5. Revisit the tasks extension when Claude Code implements it. The migration would be small,
    since the bridge already has the state machine.
