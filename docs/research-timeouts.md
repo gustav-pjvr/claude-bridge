@@ -148,7 +148,10 @@ revision removes `Last-Event-ID` SSE resumability.
    cancellation of the request.
 3. **Emit progress notifications from long-blocking tools.** They do not help the wall clock
    but do hold off the idle timer, which defaults to 5 minutes for HTTP servers.
-4. **Keep `BRIDGE_MAX_WAIT_SECONDS` under the caller's wall clock.** The default of 90 is safe
-   against any caller.
+4. **Keep `BRIDGE_MAX_WAIT_SECONDS` under the caller's IDLE clock, not its wall clock.** The
+   wall clock is effectively unlimited; the 300 s idle default for HTTP servers is what
+   actually bites. The default of 240 stays under it with no config on the caller's side.
+   Going higher requires either progress notifications or a per-server `"timeout"` on the
+   caller.
 5. Revisit the tasks extension when Claude Code implements it. The migration would be small,
    since the bridge already has the state machine.
