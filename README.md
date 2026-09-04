@@ -105,6 +105,30 @@ real filesystem and shell access.** Anyone holding the token can do that.
 - Rotate the token by changing `BRIDGE_TOKEN`, restarting, and re-running `claude mcp add`
   on device A.
 
+## Running it as a service
+
+`npm start` dies with the terminal. To keep the bridge up across reboots, register the
+scheduled task:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts\install-autostart.ps1
+Start-ScheduledTask -TaskName claude-bridge
+```
+
+It starts at logon, restarts on crash, has no execution time limit, and logs to
+`logs/bridge.log`. Remove it with `-Uninstall`.
+
+The task deliberately runs **as the logged-on user**, not SYSTEM. The delegated `claude -p`
+needs this user's Claude Code credentials from their profile, so any other account would
+leave the worker unauthenticated.
+
+Check on it:
+
+```powershell
+Get-ScheduledTask -TaskName claude-bridge
+Get-Content logs\bridge.log -Tail 20
+```
+
 ## Documentation
 
 | Doc | Covers |
