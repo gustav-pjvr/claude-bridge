@@ -1,0 +1,17 @@
+{
+  "name": "claude-bridge",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "MCP bridge that lets a Claude Code session on another account delegate work to this machine's Claude Code.",
+  "main": "src/server.mjs",
+  "scripts": {
+    "start": "node --env-file-if-exists=.env src/server.mjs",
+    "token": "node -e \"console.log(require('crypto').randomBytes(32).toString('hex'))\""
+  },
+  "engines": { "node": ">=20" },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.22.0",
+    "zod": "^3.25.76"
+  }
+}
