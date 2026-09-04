@@ -165,10 +165,16 @@ function buildServer() {
     { name: 'claude-bridge', version: '1.0.0' },
     {
       instructions:
-        'Delegate work to a Claude Code session running on another machine, under a different account. '
-        + 'Call delegate with a self-contained prompt. If it returns a job_id instead of an answer, poll collect with '
-        + 'that job_id until the job reaches a terminal state. Pass the returned session_id back to delegate to '
-        + 'continue the same conversation rather than starting a fresh one.',
+        'Delegate work to a full Claude Code session running on another machine, under a different account. '
+        + 'That session has its own files, shell and tools, and can do real work, but it cannot see your '
+        + 'conversation or your files, so every prompt must be self-contained. Restate the task rather than '
+        + 'referring to it by a name used in your own session.\n\n'
+        + 'delegate normally blocks until the work is finished and returns the result, even for tasks lasting '
+        + 'many minutes, so wait for it rather than assuming it has stalled. Only if a job outlasts that wait '
+        + 'does it return a job_id, which you then pass to collect, repeatedly, until the job reaches a terminal '
+        + 'state.\n\n'
+        + 'Each call starts a brand new session on that machine unless you pass session_id from an earlier '
+        + 'result, which continues that conversation and is far cheaper. Several delegations can run at once.',
     },
   )
 
