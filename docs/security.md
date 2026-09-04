@@ -106,8 +106,10 @@ surface is wanted.
 ## Operational rules
 
 - Keep `.env` out of git. `.gitignore` covers it.
-- Rotate the token by changing `BRIDGE_TOKEN`, restarting, and re-running `claude mcp add` on
-  device A.
+- Rotate the token by changing `BRIDGE_TOKEN`, restarting the task, and re-registering on the
+  sender. `claude mcp add` **refuses to overwrite** an existing entry, so the sender needs
+  `claude mcp remove claude-bridge --scope user` first or the old token silently stays in
+  force. Full procedure in [operations.md](operations.md).
 - Never set `BRIDGE_PERMISSION_MODE=bypassPermissions`. The server refuses it at startup.
   Runs use `--permission-prompts none`, which denies anything that would prompt rather than
   approving it, because nobody is at that terminal to answer.

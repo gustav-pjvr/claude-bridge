@@ -161,6 +161,7 @@ Get-Content logs\bridge.log -Tail 20
 |---|---|
 | [docs/architecture.md](docs/architecture.md) | How it works, module by module, and why |
 | [docs/research-cross-account.md](docs/research-cross-account.md) | What is account-locked, and the options rejected |
+| [docs/operations.md](docs/operations.md) | Running it, reading the logs, failures hit in production |
 | [docs/research-timeouts.md](docs/research-timeouts.md) | The two timeout clocks, measured not inferred |
 | [docs/security.md](docs/security.md) | Threat model, review findings, accepted risks |
 | [docs/decisions.md](docs/decisions.md) | Dated decision log |

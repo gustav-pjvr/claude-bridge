@@ -4,6 +4,28 @@ Newest first. Each entry records what was decided, why, and what would reopen it
 
 ---
 
+## 2026-09-04: never pipe node through PowerShell, and log every request
+
+**Decision.** `start-bridge.ps1` uses `Start-Process` with OS-level redirection. HTTP request
+logging is permanent, not a debugging aid to be removed later.
+
+**Why.** The bridge was dying silently and being resurrected by the self-heal trigger, so it
+presented as an intermittent remote connection failure. Cause was the launcher piping node's
+output with `*>&1` under `$ErrorActionPreference = 'Stop'`: PowerShell 5.1 wraps a native
+executable's stderr as a terminating `NativeCommandError`, killing the server on the first
+byte node wrote to stderr.
+
+Two lessons are worth keeping. The self-heal trigger **masks crashes**, so intermittent
+behaviour must be checked against repeated startup banners in the log before blaming the
+client. And when a remote client cannot connect, the first question is whether its request
+arrived at all; nothing answered that until request logging existed, and once it did, two
+separate failures were identified in seconds.
+
+**Reopen if.** Never for the pipeline. The logging could move behind a flag if volume becomes
+a problem, but it costs one line per request.
+
+---
+
 ## 2026-09-04: let the sender steer the worker, but only through fixed vocabularies
 
 **Decision.** `delegate` accepts `model`, `effort`, `permission_mode` and `allowed_tools`, so
