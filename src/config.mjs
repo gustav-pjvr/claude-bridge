@@ -30,6 +30,28 @@ export const ALLOWED_TOOLS = (process.env.BRIDGE_ALLOWED_TOOLS || '').trim()
 /** Model for delegated runs. Empty means the machine's configured default. */
 export const MODEL = (process.env.BRIDGE_MODEL || '').trim()
 
+/** Effort for delegated runs. Empty means the machine's configured default. */
+export const EFFORT = (process.env.BRIDGE_EFFORT || '').trim()
+
+/* The caller may steer the worker, but only through fixed vocabularies.
+ *
+ * Every one of these values ends up in argv. A free string there is a flag-injection
+ * vector, which is exactly how the critical `session_id` bug worked: `--resume [value]`
+ * takes an optional argument, so a value starting with "-" was parsed as its own flag.
+ * An enum cannot smuggle a flag, so enums are what make caller control safe here. */
+
+/** Haiku is deliberately absent: Gustav's standing rule is never to use it. */
+export const ALLOWED_MODELS = ['fable', 'opus', 'sonnet']
+
+export const ALLOWED_EFFORTS = ['low', 'medium', 'high', 'xhigh', 'max']
+
+/** `bypassPermissions` is absent on purpose. The caller is remote and unsupervised. */
+export const ALLOWED_PERMISSION_MODES = ['auto', 'acceptEdits', 'dontAsk', 'plan']
+
+/** A tool list reaches argv as one token, so it must not be readable as a flag.
+ *  Requiring a leading letter guarantees that; the rest covers specs like "Bash(git *)". */
+export const ALLOWED_TOOLS_PATTERN = /^[A-Za-z][A-Za-z0-9_ ,:*().\/-]*$/
+
 /** Hard ceiling on a single delegated run, independent of how long the caller waits. */
 export const JOB_TIMEOUT_MS = Number(process.env.BRIDGE_JOB_TIMEOUT_MS || 3_600_000)
 

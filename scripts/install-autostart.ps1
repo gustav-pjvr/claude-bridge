@@ -36,7 +36,17 @@ $action = New-ScheduledTaskAction `
     -Argument "-NonInteractive -WindowStyle Hidden -ExecutionPolicy Bypass -File `"$launcher`"" `
     -WorkingDirectory $projectRoot
 
-$trigger = New-ScheduledTaskTrigger -AtLogOn -User "$env:USERDOMAIN\$env:USERNAME"
+# Two triggers. The logon one starts the bridge normally. The repeating one is the
+# self-heal: Task Scheduler's RestartCount only fires when a task FAILS, so a process
+# that exits cleanly (a stray SIGTERM, or an operator stop) would otherwise stay dead
+# until the next logon. Paired with MultipleInstances=IgnoreNew below, this five-minute
+# tick is a no-op while the bridge is alive and revives it when it is not.
+$logonTrigger = New-ScheduledTaskTrigger -AtLogOn -User "$env:USERDOMAIN\$env:USERNAME"
+
+$healTrigger = New-ScheduledTaskTrigger -Once -At (Get-Date).AddMinutes(1) `
+    -RepetitionInterval (New-TimeSpan -Minutes 5)
+
+$trigger = @($logonTrigger, $healTrigger)
 
 $principal = New-ScheduledTaskPrincipal `
     -UserId "$env:USERDOMAIN\$env:USERNAME" `

@@ -105,6 +105,32 @@ real filesystem and shell access.** Anyone holding the token can do that.
 - Rotate the token by changing `BRIDGE_TOKEN`, restarting, and re-running `claude mcp add`
   on device A.
 
+## Controlling the worker from the sender
+
+`delegate` takes more than a prompt. The sender chooses how the remote agent runs, per call:
+
+| Argument | Values | Effect |
+|---|---|---|
+| `model` | `fable`, `opus`, `sonnet` | Which model does the work |
+| `effort` | `low`, `medium`, `high`, `xhigh`, `max` | Reasoning depth |
+| `permission_mode` | `auto`, `acceptEdits`, `dontAsk`, `plan` | Use `plan` for a read-only dry run |
+| `allowed_tools` | e.g. `"Read,Grep,Glob"` | Narrow the worker's tools |
+| `cwd` | absolute path | Where it runs |
+| `session_id` | from a previous result | Continue that thread instead of a new one |
+
+Every one of these is a **fixed vocabulary**, not a free string, and that is deliberate. Each
+value ends up in the worker's argv, and a free string there is a flag-injection vector. See
+[docs/security.md](docs/security.md) for the critical bug that taught us this.
+
+Two behaviours worth knowing:
+
+- **Every call is a new chat by default.** Omit `session_id` and the worker starts fresh with
+  no memory of previous calls. Pass one and it resumes, which is roughly twelve times cheaper.
+- **Calls run in parallel.** Up to `BRIDGE_MAX_CONCURRENT_JOBS` (default 6) delegations run at
+  once, so the sender can fan out several agents on different models simultaneously.
+
+Haiku is deliberately not offered as a model.
+
 ## Running it as a service
 
 `npm start` dies with the terminal. To keep the bridge up across reboots, register the

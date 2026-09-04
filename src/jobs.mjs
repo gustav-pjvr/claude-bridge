@@ -49,13 +49,19 @@ export function loadPersistedJobs() {
   return loaded
 }
 
-export function createJob({ prompt, cwd, resumeSessionId }) {
+export function createJob({ prompt, cwd, resumeSessionId, model, effort, allowedTools, permissionMode }) {
   const job = {
     id: randomUUID(),
     status: 'running',
     prompt,
     cwd,
     resume_session_id: resumeSessionId || null,
+    // Caller-chosen worker settings. The runner checks each against a fixed vocabulary
+    // before any of them reaches argv.
+    model: model || null,
+    effort: effort || null,
+    allowed_tools: allowedTools || null,
+    permission_mode: permissionMode || null,
     session_id: null,
     result: null,
     error: null,

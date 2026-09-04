@@ -1,7 +1,12 @@
 import { spawn } from 'node:child_process'
 
 import {
+  ALLOWED_EFFORTS,
+  ALLOWED_MODELS,
+  ALLOWED_PERMISSION_MODES,
   ALLOWED_TOOLS,
+  ALLOWED_TOOLS_PATTERN,
+  EFFORT,
   JOB_TIMEOUT_MS,
   MAX_CONCURRENT_JOBS,
   MAX_OUTPUT_BYTES,
@@ -30,21 +35,49 @@ function safeSessionId(value) {
   return value
 }
 
-function buildArgs({ resumeSessionId }) {
+/** Accept a caller value only if it is in the vocabulary, else refuse the whole run. */
+function fromVocabulary(label, value, allowed) {
+  if (!value) return null
+  if (!allowed.includes(value)) {
+    throw new Error(`Refusing to spawn: ${label} must be one of ${allowed.join(', ')}, got "${value}"`)
+  }
+  return value
+}
+
+function safeToolList(value) {
+  if (!value) return null
+  if (!ALLOWED_TOOLS_PATTERN.test(value)) {
+    throw new Error(`Refusing to spawn with a malformed tool list: ${value}`)
+  }
+  return value
+}
+
+function buildArgs(job) {
   // The prompt goes in on stdin, never argv: it avoids Windows command-line length
   // limits and removes any question of quoting attacker-controlled text.
+  //
+  // Everything below that DOES reach argv is either constructed here or checked against a
+  // fixed vocabulary first, so no caller value can be read as a flag.
+  const model = fromVocabulary('model', job.model, ALLOWED_MODELS) ?? (MODEL || null)
+  const effort = fromVocabulary('effort', job.effort, ALLOWED_EFFORTS) ?? (EFFORT || null)
+  const permissionMode =
+    fromVocabulary('permission_mode', job.permission_mode, ALLOWED_PERMISSION_MODES)
+    ?? PERMISSION_MODE
+  const tools = safeToolList(job.allowed_tools) ?? (ALLOWED_TOOLS || null)
+
   const args = [
     '-p',
     '--output-format', 'json',
-    '--permission-mode', PERMISSION_MODE,
+    '--permission-mode', permissionMode,
     // Nobody is at this terminal to answer a prompt, so anything that would ask is
     // denied rather than left hanging. The permission mode still decides the rest.
     '--permission-prompts', 'none',
   ]
-  const resume = safeSessionId(resumeSessionId)
+  const resume = safeSessionId(job.resume_session_id)
   if (resume) args.push('--resume', resume)
-  if (MODEL) args.push('--model', MODEL)
-  if (ALLOWED_TOOLS) args.push('--allowedTools', ALLOWED_TOOLS)
+  if (model) args.push('--model', model)
+  if (effort) args.push('--effort', effort)
+  if (tools) args.push('--allowedTools', tools)
   return args
 }
 
@@ -92,7 +125,7 @@ export function startJob(job) {
 
   let args
   try {
-    args = buildArgs({ resumeSessionId: job.resume_session_id })
+    args = buildArgs(job)
   } catch (err) {
     updateJob(job.id, { status: 'error', error: err.message })
     return

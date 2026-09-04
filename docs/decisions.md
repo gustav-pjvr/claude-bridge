@@ -4,6 +4,41 @@ Newest first. Each entry records what was decided, why, and what would reopen it
 
 ---
 
+## 2026-09-04: let the sender steer the worker, but only through fixed vocabularies
+
+**Decision.** `delegate` accepts `model`, `effort`, `permission_mode` and `allowed_tools`, so
+the sender controls how the remote agent runs. Every one is a strict enum or a validated
+pattern, never a free string.
+
+**Why.** Gustav wants the second machine to act as an agent platform under the sender's full
+control. The enum constraint is what makes that safe: each value reaches the worker's argv,
+and the critical `session_id` bug proved a free string there is a flag-injection vector. An
+enum cannot smuggle a flag.
+
+Excluded on purpose: `haiku` from the models, per Gustav's standing rule never to use it, and
+`bypassPermissions` from the permission modes, since the caller is remote and unsupervised.
+
+**Reopen if.** Gustav wants a model outside the list, which is a one-line change to
+`ALLOWED_MODELS`.
+
+---
+
+## 2026-09-04: self-healing trigger instead of relying on exit codes
+
+**Decision.** The scheduled task carries two triggers: at logon, and a five-minute repetition,
+paired with `MultipleInstances=IgnoreNew`.
+
+**Why.** Observed in practice: a stop-and-start cycle left the bridge dead and it never came
+back. Task Scheduler's `RestartCount` only fires when a task *fails*, and the server exits
+cleanly on a signal, so a clean exit silently ended the service until the next logon. The
+repetition tick is a no-op while the bridge is alive and revives it when it is not, regardless
+of how it died.
+
+**Reopen if.** The bridge ever needs sub-five-minute recovery, which would mean a real service
+wrapper such as NSSM rather than Task Scheduler.
+
+---
+
 ## 2026-09-04: keep the job model even though long calls are allowed
 
 **Decision.** Keep `delegate` plus `collect`, rather than switching to one long blocking call

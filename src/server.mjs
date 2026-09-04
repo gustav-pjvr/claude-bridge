@@ -7,6 +7,7 @@ import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/
 import { z } from 'zod'
 
 import {
+  ALLOWED_EFFORTS, ALLOWED_MODELS, ALLOWED_PERMISSION_MODES,
   DEFAULT_CWD, HOST, MAX_WAIT_SECONDS, PERMISSION_MODE, PORT, TOKEN,
   assertConfigured,
 } from './config.mjs'
@@ -70,11 +71,18 @@ function resolveCwd(requested) {
 /** Render a job for the calling Claude: the answer first, the bookkeeping after. */
 function describeJob(job) {
   if (!TERMINAL_STATES.has(job.status)) {
+    const elapsed = Math.round((Date.now() - Date.parse(job.created_at)) / 1000)
     return [
-      `Job ${job.id} is still ${job.status}.`,
-      `Started ${job.created_at}.`,
+      `Job ${job.id} is still ${job.status} after ${elapsed}s. This is normal and nothing has gone wrong.`,
       '',
-      `Call collect with job_id "${job.id}" again to keep waiting. The work continues on the remote machine either way.`,
+      'ACTION REQUIRED: call collect again with this job_id. Keep calling it until the status is',
+      'done, error, cancelled or timeout. Each call waits up to '
+        + `${MAX_WAIT_SECONDS}s, so a job that takes half an hour needs roughly `
+        + `${Math.ceil(1800 / MAX_WAIT_SECONDS)} calls. Do not give up, do not start the work `
+        + 'yourself, and do not report back to the user that it is unfinished: the remote machine '
+        + 'is still working and the result is only retrievable through collect.',
+      '',
+      `    collect(job_id: "${job.id}")`,
     ].join('\n')
   }
 
@@ -137,14 +145,33 @@ function buildServer() {
           .describe('Absolute working directory on the remote machine. Defaults to its configured workspace.'),
         wait_seconds: z.number().int().min(0).optional()
           .describe(`How long to wait inline before returning a job_id. Capped at ${MAX_WAIT_SECONDS}.`),
+        model: z.enum(ALLOWED_MODELS).optional()
+          .describe('Model the remote worker should use. Defaults to that machine\'s configured model.'),
+        effort: z.enum(ALLOWED_EFFORTS).optional()
+          .describe('Reasoning effort for the remote worker. Higher costs more and takes longer.'),
+        permission_mode: z.enum(ALLOWED_PERMISSION_MODES).optional()
+          .describe('Permission posture for the remote worker. Use "plan" for a read-only dry run.'),
+        allowed_tools: z.string().optional()
+          .describe('Restrict the remote worker to these tools, e.g. "Read,Grep,Glob". Defaults to all of them.'),
       },
     },
-    async ({ prompt, session_id, cwd, wait_seconds }) => {
+    async ({ prompt, session_id, cwd, wait_seconds, model, effort, permission_mode, allowed_tools }) => {
       const resolved = resolveCwd(cwd)
       if (resolved.error) return { isError: true, ...textResult(resolved.error) }
 
-      const job = createJob({ prompt, cwd: resolved.cwd, resumeSessionId: session_id || null })
-      console.log(`[bridge] delegate job=${job.id} cwd=${job.cwd} resume=${session_id || 'none'} chars=${prompt.length}`)
+      const job = createJob({
+        prompt,
+        cwd: resolved.cwd,
+        resumeSessionId: session_id || null,
+        model,
+        effort,
+        allowedTools: allowed_tools,
+        permissionMode: permission_mode,
+      })
+      console.log(
+        `[bridge] delegate job=${job.id} cwd=${job.cwd} resume=${session_id || 'none'}`
+        + ` model=${model || 'default'} effort=${effort || 'default'} chars=${prompt.length}`,
+      )
       startJob(job)
 
       const finished = await waitForTerminal(job.id, clampWait(wait_seconds, 25))
@@ -157,8 +184,10 @@ function buildServer() {
     {
       title: 'Collect a delegated result',
       description:
-        'Wait for a delegated job to finish and return its result. Long-polls, so call it repeatedly '
-        + 'until the status is done, error, cancelled or timeout.',
+        'Wait for a delegated job to finish and return its result. This long-polls, and returning '
+        + 'without a result is normal, not a failure. You MUST keep calling it with the same job_id '
+        + 'until the status is done, error, cancelled or timeout. A long job can need many calls in '
+        + 'a row; that is expected. The result exists only here, so abandoning the loop loses the work.',
       inputSchema: {
         job_id: z.string().min(1).describe('The job_id returned by delegate.'),
         wait_seconds: z.number().int().min(0).optional()
