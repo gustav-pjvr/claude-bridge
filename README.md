@@ -75,11 +75,28 @@ claude mcp add-json claude-bridge '{"type":"http","url":"http://100.70.125.65:87
 this machine continues regardless of what the caller does, and `collect` picks the answer up
 afterwards. See [docs/research-timeouts.md](docs/research-timeouts.md) for the measurements.
 
+### More than one receiver
+
+One sender can reach several receivers. Install the bridge on each receiver as above, with its
+own token and its own `BRIDGE_LABEL`, then register each one on the sender under its own name:
+
+```bash
+claude mcp add --transport http claude-bridge-hp     http://100.70.125.65:8790/mcp --scope user --header "Authorization: Bearer <hp token>"
+claude mcp add --transport http claude-bridge-laptop http://<laptop ip>:8790/mcp  --scope user --header "Authorization: Bearer <laptop token>"
+```
+
+Each entry reaches exactly one machine, and the sending model picks a machine by picking the
+tool (`mcp__claude-bridge-hp__delegate` or `mcp__claude-bridge-laptop__delegate`). The label
+appears in each receiver's tool descriptions, so the model can see which is which.
+
 ## Configuration
 
 All settings live in `.env`, documented in `.env.example`. The ones that matter:
 
 - `BRIDGE_TOKEN` (required) shared secret, minimum 24 characters
+- `BRIDGE_LABEL` how this receiver names itself in its tool descriptions. Defaults to the
+  hostname. Set it to something a model can act on, since it is how a sender with several
+  receivers chooses between them
 - `BRIDGE_CWD` working directory delegated runs start in
 - `BRIDGE_PERMISSION_MODE` defaults to `auto`, matching this machine's interactive default
 - `BRIDGE_ALLOWED_TOOLS` empty by default, so the worker keeps every tool it normally has

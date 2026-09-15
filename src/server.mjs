@@ -8,7 +8,7 @@ import { z } from 'zod'
 
 import {
   ALLOWED_EFFORTS, ALLOWED_MODELS, ALLOWED_PERMISSION_MODES,
-  DEFAULT_CWD, HOST, MAX_WAIT_SECONDS, PERMISSION_MODE, PORT,
+  DEFAULT_CWD, HOST, LABEL, MAX_WAIT_SECONDS, PERMISSION_MODE, PORT,
   PROGRESS_INTERVAL_MS, SAFE_WAIT_WITHOUT_PROGRESS, TOKEN,
   assertConfigured,
 } from './config.mjs'
@@ -165,7 +165,8 @@ function buildServer() {
     { name: 'claude-bridge', version: '1.0.0' },
     {
       instructions:
-        'Delegate work to a full Claude Code session running on another machine, under a different account. '
+        `Delegate work to a full Claude Code session running on another machine: ${LABEL}. `
+        + 'If several such machines are connected, this server reaches only that one. '
         + 'That session has its own files, shell and tools, and can do real work, but it cannot see your '
         + 'conversation or your files, so every prompt must be self-contained. Restate the task rather than '
         + 'referring to it by a name used in your own session.\n\n'
@@ -181,9 +182,9 @@ function buildServer() {
   server.registerTool(
     'delegate',
     {
-      title: 'Delegate a task to the remote Claude Code',
+      title: `Delegate a task to ${LABEL}`,
       description:
-        'Send a task to the Claude Code session on the remote machine and wait for the answer. '
+        `Send a task to the Claude Code session on the remote machine ${LABEL} and wait for the answer. `
         + 'This normally blocks until the work is done and returns the result directly, even for tasks '
         + 'that take many minutes, so just wait for it. Only if the job outlasts the wait does it return '
         + 'a job_id, which you then pass to collect. '
@@ -274,7 +275,7 @@ function buildServer() {
     'list_jobs',
     {
       title: 'List delegated jobs',
-      description: 'Show recent delegated jobs on the remote machine, newest first.',
+      description: `Show recent delegated jobs on the remote machine ${LABEL}, newest first.`,
       inputSchema: {
         limit: z.number().int().min(1).max(100).optional().describe('How many jobs to list. Default 20.'),
       },
@@ -294,7 +295,7 @@ function buildServer() {
     'cancel_job',
     {
       title: 'Cancel a delegated job',
-      description: 'Stop a delegated job that is still running on the remote machine.',
+      description: `Stop a delegated job that is still running on the remote machine ${LABEL}.`,
       inputSchema: { job_id: z.string().min(1).describe('The job_id to cancel.') },
     },
     async ({ job_id }) => {
@@ -415,6 +416,7 @@ function main() {
 
   httpServer.listen(PORT, HOST, () => {
     console.log(`[bridge] claude-bridge listening on http://${HOST}:${PORT}/mcp`)
+    console.log(`[bridge] label           ${LABEL}`)
     console.log(`[bridge] claude binary   ${CLAUDE_BIN_PATH}`)
     console.log(`[bridge] default cwd     ${DEFAULT_CWD}`)
     console.log(`[bridge] permission mode ${PERMISSION_MODE}`)

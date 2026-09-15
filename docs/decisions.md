@@ -4,6 +4,25 @@ Newest first. Each entry records what was decided, why, and what would reopen it
 
 ---
 
+## 2026-09-15: one MCP entry per receiver, each labelled
+
+**Decision.** A sender reaches several receivers by registering one MCP entry per receiver.
+Each receiver names itself in its tool descriptions through `BRIDGE_LABEL`, defaulting to the
+hostname.
+
+**Why.** Gustav is adding a second receiver for the same sender. Separate entries need no new
+code or process, and one receiver going down cannot take the others with it. The rejected
+alternative was a router entry taking a `device` argument, which would be one more service to
+run and a single point of failure in front of every receiver. The label exists because two
+entries otherwise present identical descriptions, leaving the sending model only the entry
+name to choose by. The hostname fallback is weak here: this machine's hostname is
+`Xbox-Wireless-Connecter-Wifi4`, which tells a model nothing, so set the label explicitly.
+
+**Reopen if.** The sender needs to pick a receiver dynamically, for example by load or by
+which machine holds a given project, which is when a router starts earning its keep.
+
+---
+
 ## 2026-09-04: heartbeat instead of relying on the caller to keep polling
 
 **Decision.** `delegate` and `collect` emit `notifications/progress` every 30 s while waiting,

@@ -1,5 +1,5 @@
 import { existsSync } from 'node:fs'
-import { homedir } from 'node:os'
+import { homedir, hostname } from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 
@@ -11,6 +11,12 @@ export const JOBS_DIR = process.env.BRIDGE_JOBS_DIR || path.join(HERE, '..', 'jo
 /** Shared secret the calling account must present. Required: without it, anyone who can
  *  reach the port can run Claude Code on this machine. */
 export const TOKEN = process.env.BRIDGE_TOKEN || ''
+
+/** How this receiver names itself in its tool descriptions. A sender with several
+ *  receivers registered sees their tools side by side, and without a label they read
+ *  identically, so the model has nothing but the entry name to choose between machines.
+ *  Whitespace is collapsed so a stray newline cannot reshape the descriptions. */
+export const LABEL = (process.env.BRIDGE_LABEL || hostname()).replace(/\s+/g, ' ').trim()
 
 export const HOST = process.env.BRIDGE_HOST || '0.0.0.0'
 export const PORT = Number(process.env.BRIDGE_PORT || 8790)

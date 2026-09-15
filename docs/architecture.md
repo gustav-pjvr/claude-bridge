@@ -30,22 +30,32 @@ The calling Claude sees four tools. Everything else is an implementation detail 
 
 | Tool | Behaviour |
 |---|---|
-| `delegate` | Spawns a run. Waits up to `wait_seconds` (default 25). Returns the finished answer, or a `job_id`. |
+| `delegate` | Spawns a run. Waits up to `wait_seconds` (default: the whole wait ceiling, see below). Returns the finished answer, or a `job_id`. |
 | `collect` | Long-polls a `job_id` until terminal. |
 | `list_jobs` | Recent jobs, newest first, with status and cost. |
 | `cancel_job` | Kills a running job's process tree. |
 
 ## Why the job model exists
 
-A single MCP tool call cannot block indefinitely. Claude Code's `MCP_TOOL_TIMEOUT` defaults
-to 120000 ms and is documented with a maximum of 600000 ms, and progress notifications do
-**not** extend that wall clock. See [research-timeouts.md](research-timeouts.md).
+The binding limit on one MCP tool call is the caller's **idle** clock: Claude Code aborts an
+HTTP server's call after 300 s of silence. Its wall clock defaults to about 27.8 hours and is
+never the constraint. See [research-timeouts.md](research-timeouts.md).
 
-So `delegate` never bets on finishing inside one call. It starts the work, waits a little,
-and hands back a `job_id` if the work is still going. The run on device B continues
-regardless of what the caller does, and `collect` picks up the answer afterwards. Short tasks
-still feel synchronous because `delegate` returns the answer directly when it is ready in
-time.
+A progress notification resets the idle clock, so while waiting the bridge heartbeats every
+30 s and a call can block for up to `BRIDGE_MAX_WAIT_SECONDS` (1800). One `delegate` call
+therefore usually returns the whole answer. A caller that sends no `progressToken` cannot be
+heartbeated, so its ceiling drops to `BRIDGE_SAFE_WAIT_SECONDS` (240).
+
+`delegate` still never bets on finishing inside one call. If the wait runs out it hands back
+a `job_id`, the run on device B continues regardless of what the caller does, and `collect`
+picks up the answer afterwards.
+
+## Identifying the receiver
+
+Each receiver names itself in its server instructions and tool descriptions using
+`BRIDGE_LABEL`, falling back to the hostname. A sender with several receivers registered
+sees their tools side by side, and without the label they would read identically. The label
+only ever reaches description text, never argv.
 
 ## Modules
 
